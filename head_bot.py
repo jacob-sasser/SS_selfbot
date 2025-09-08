@@ -11,7 +11,9 @@ class main_bot(commands.Cog):
         self.bot = bot
         self.channels=[]
         self.bots=[]
-        self.inactive_bots=list[discord.VoiceChannel]
+        self.inactive_bots=[]
+        self.active_channels=[]
+        self.human_role=None
     def get_role_members(role:discord.Role):
         return role.members
 
@@ -26,8 +28,8 @@ class main_bot(commands.Cog):
         returns: list[discord.Member]
         '''
         bots_in_channel=afk_channel.members
-        
-        return bots_in_channel
+        for bot in bots_in_channel:
+            self.inactive_bots.append(bot)
 
     @tasks.loop(seconds=1)
     async def get_active_channels(self,ctx,channel_list:list[discord.VoiceChannel],bot_role:discord.Role,human_role:discord.Role):
@@ -35,7 +37,7 @@ class main_bot(commands.Cog):
         searches through the designated list of channels and returns the channels with a (non-bot) user and a bot-user in them
 
         '''
-        active_channel=[]
+        
         
         for channel in channel_list:
             has_bot=False
@@ -46,10 +48,10 @@ class main_bot(commands.Cog):
                     has_bot=True
                 elif human_role in member.roles:
                     has_member=True
-            if has_member == True & has_bot==True:
-                active_channel.append(channel)
+            if has_member and has_bot:
+                self.active_channels.append(channel)
             
-        return active_channel
+            
 
     @commands.command()
     async def init_category(self,ctx,category:discord.CategoryChannel):
@@ -86,12 +88,34 @@ class main_bot(commands.Cog):
             
         else:
             ctx.send("User does not exist")
-        
 
-
+    
+  
     @commands.Cog.listener()
-    def move_bot(self,ctx,bot:discord.Member,*,channel:discord.VoiceChannel):
-        pass
+    async def on_voice_state_update(self, member, before, after):
+        """
+        Whenever someone joins a watched channel:
+        - If they have the human_role
+        - Move a random inactive bot into the same channel
+        """
+        human_role_id = self.human_role
+        # Did the user join a channel?
+        if after.channel and after.channel in self.channels:
+            # Does the user have the target role?
+            if discord.utils.get(member.roles, id=human_role_id):
+                if not self.inactive_bots:
+                    print("⚠️ No inactive bots available.")
+                    return
+
+                chosen_bot = random.choice(self.inactive_bots)
+                try:
+                    await chosen_bot.move_to(after.channel)
+                    self.inactive_bots.remove(chosen_bot)
+                    print(f"Moved {chosen_bot.display_name} into {after.channel.name}")
+                except discord.Forbidden:
+                    print(" Missing permissions to move the bot.")
+                except discord.HTTPException as e:
+                    print(f"Failed to move bot: {e}")
 
     @commands.command()
     async def watch(self,ctx,channel:discord.VoiceChannel):
