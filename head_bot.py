@@ -2,15 +2,16 @@ import discord
 import asyncio
 from discord.ext import commands,tasks
 from typing import Optional
-
+import random
+import numpy as np
 TOKEN=''
 
 class main_bot(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-
-    
-
+        self.channels=[]
+        self.bots=[]
+        self.inactive_bots=list[discord.VoiceChannel]
     def get_role_members(role:discord.Role):
         return role.members
 
@@ -25,13 +26,14 @@ class main_bot(commands.Cog):
         returns: list[discord.Member]
         '''
         bots_in_channel=afk_channel.members
+        
         return bots_in_channel
 
     @tasks.loop(seconds=1)
     async def get_active_channels(self,ctx,channel_list:list[discord.VoiceChannel],bot_role:discord.Role,human_role:discord.Role):
         '''
         searches through the designated list of channels and returns the channels with a (non-bot) user and a bot-user in them
-        
+
         '''
         active_channel=[]
         
@@ -49,20 +51,38 @@ class main_bot(commands.Cog):
             
         return active_channel
 
+    @commands.command()
+    async def init_category(self,ctx,category:discord.CategoryChannel):
+        '''
+        initializes every channel under a certain category
         
-        
+        '''
+        for vc in category.voice_channels:
+            self.channels.append(vc)
+        return self.channels
+
+    @commands.command()
+    async def init_channel(self,ctx,vc:discord.VoiceChannel):
+        '''
+        init_channel
+        initializes a new channel that people and bots will be joining
+        params: channel_name
+        '''
+        self.channels.append(vc)
+        return self.channels
+
 
     @commands.command()
     async def init_bot(self,ctx,bot:discord.Member,bot_role:discord.Role):
         '''
-        initialized a new slave bot, giving them roles and server muting & deafning them
+        initialized a new bot, giving them roles and server muting & deafning them
         potentially also gives them nickname IDK yet
-        
         returns: void
         '''
         if(bot):
             bot.edit(role=bot_role,mute=True,deafen=True)
             ctx.send(f"Initialized {bot}")
+            self.bots.append(bot)
             
         else:
             ctx.send("User does not exist")
@@ -74,5 +94,10 @@ class main_bot(commands.Cog):
         pass
 
     @commands.command()
-    async def watch(self,ctx):
-        pass
+    async def watch(self,ctx,channel:discord.VoiceChannel):
+        chosen_bot=random.choice(self.inactive_bots)
+
+        chosen_bot.edit(voice_channel=channel)
+
+
+        

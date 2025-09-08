@@ -15,6 +15,7 @@ class test_bot(commands.Cog):
         self.bot=bot
         self.testing_guild_id = testing_guild_id
 
+        
     
     def get_guilds(self):
         return self.bot.guilds
