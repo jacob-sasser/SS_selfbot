@@ -3,7 +3,7 @@ import asyncio
 from discord.ext import commands,tasks
 from typing import Optional
 import random
-import numpy as np
+
 TOKEN=''
 
 class main_bot(commands.Cog):
@@ -14,11 +14,12 @@ class main_bot(commands.Cog):
         self.inactive_bots=[]
         self.active_channels=[]
         self.human_role=None
+
     def get_role_members(role:discord.Role):
         return role.members
 
 
-    @tasks.loop(seconds=5)
+    @tasks.loop(seconds=2)
     async def get_inactive_bots(self,ctx,afk_channel:discord.VoiceChannel):
         '''
         Gets the current bots not watching a screenshare
@@ -37,7 +38,6 @@ class main_bot(commands.Cog):
         searches through the designated list of channels and returns the channels with a (non-bot) user and a bot-user in them
 
         '''
-        
         
         for channel in channel_list:
             has_bot=False
@@ -82,46 +82,50 @@ class main_bot(commands.Cog):
         returns: void
         '''
         if(bot):
-            bot.edit(role=bot_role,mute=True,deafen=True)
-            ctx.send(f"Initialized {bot}")
+            await bot.edit(role=bot_role,mute=True,deafen=True)
+            await ctx.send(f"Initialized {bot}")
             self.bots.append(bot)
             
         else:
-            ctx.send("User does not exist")
+            await ctx.send("User does not exist")
 
     
   
     @commands.Cog.listener()
-    async def on_voice_state_update(self, member, before, after):
+    async def on_voice_state_update(self, member:discord.Member, before:discord.VoiceState, after:discord.VoiceState):
         """
         Whenever someone joins a watched channel:
         - If they have the human_role
         - Move a random inactive bot into the same channel
         """
-        human_role_id = self.human_role
+        
         # Did the user join a channel?
-        if after.channel and after.channel in self.channels:
+        if after.channel in self.channels and self.human_role in member.roles:
             # Does the user have the target role?
-            if discord.utils.get(member.roles, id=human_role_id):
-                if not self.inactive_bots:
-                    print("⚠️ No inactive bots available.")
+            if not self.inactive_bots:
+                    print(" No inactive bots available.")
                     return
 
-                chosen_bot = random.choice(self.inactive_bots)
-                try:
-                    await chosen_bot.move_to(after.channel)
-                    self.inactive_bots.remove(chosen_bot)
-                    print(f"Moved {chosen_bot.display_name} into {after.channel.name}")
-                except discord.Forbidden:
-                    print(" Missing permissions to move the bot.")
-                except discord.HTTPException as e:
-                    print(f"Failed to move bot: {e}")
+            chosen_bot = random.choice(self.inactive_bots)
+            try:
+                await chosen_bot.move_to(after.channel)
+                self.inactive_bots.remove(chosen_bot)
+                print(f"Moved {chosen_bot.display_name} into {after.channel.name}")
+            except discord.Forbidden:
+                print(" Missing permissions to move the bot.")
+            except discord.HTTPException as e:
+                print(f"Failed to move bot: {e}")
+    
+    @commands.Cog.listener()
+    def on_voice_leave(self,member:discord.Member,before:discord.VoiceState,after:discord.VoiceState):
+        pass
+
 
     @commands.command()
     async def watch(self,ctx,channel:discord.VoiceChannel):
         chosen_bot=random.choice(self.inactive_bots)
 
-        chosen_bot.edit(voice_channel=channel)
+        await chosen_bot.edit(voice_channel=channel)
 
 
         
