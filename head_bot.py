@@ -14,6 +14,7 @@ class main_bot(commands.Cog):
         self.inactive_bots=[]
         self.active_channels=[]
         self.human_role=None
+        self.waiting_channel=None
 
     def get_role_members(role:discord.Role):
         return role.members
@@ -115,10 +116,15 @@ class main_bot(commands.Cog):
                 print(" Missing permissions to move the bot.")
             except discord.HTTPException as e:
                 print(f"Failed to move bot: {e}")
-    
+
     @commands.Cog.listener()
-    def on_voice_leave(self,member:discord.Member,before:discord.VoiceState,after:discord.VoiceState):
-        pass
+    async def on_voice_leave(self,member:discord.Member,before:discord.VoiceState,after:discord.VoiceState):\
+            #need to add an actual self.waiting_channel, currently set to None
+            if after.channel != before.channel and self.human_role in member.roles:
+                for voice_member in after.channel.members:
+                    if voice_member in self.bots:
+                        voice_member.edit(voice_channel=self.waiting_channel)
+
 
 
     @commands.command()
