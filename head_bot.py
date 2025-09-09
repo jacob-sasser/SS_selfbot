@@ -123,15 +123,25 @@ class main_bot(commands.Cog):
             if after.channel != before.channel and self.human_role in member.roles:
                 for voice_member in after.channel.members:
                     if voice_member in self.bots:
-                        voice_member.edit(voice_channel=self.waiting_channel)
+                        await voice_member.edit(voice_channel=self.waiting_channel)
 
 
 
     @commands.command()
-    async def watch(self,ctx,channel:discord.VoiceChannel):
-        chosen_bot=random.choice(self.inactive_bots)
+    async def watch(self,ctx,channel:discord.VoiceChannel,force: Optional[bool]): 
+        if force and len(self.inactive_bots)==0:
+            chosen_bot=random.choice(self.bots)
+            await ctx.send(f"force moving bot to {channel.name}")
+            await chosen_bot.edit(voice_channel=channel)
+        elif len(self.inactive_bots==0):
+            await ctx.send("no bots available")
+            return
+        else:
+            chosen_bot=random.choice(self.inactive_bots)
+        
+            await chosen_bot.edit(voice_channel=channel)
 
-        await chosen_bot.edit(voice_channel=channel)
+    
 
 
         
