@@ -1,0 +1,52 @@
+services:
+  redis:
+    image: redis:7
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  master:
+    build: ./head_bot
+    container_name: discord-master
+    restart: unless-stopped
+    environment:
+      - REDIS_HOST=my-redis
+      - REDIS_PORT=6379
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+    depends_on:
+      - redis
+
+  slave1:
+    build: ./ss_bot
+    container_name: discord-slave-1
+    restart: unless-stopped
+    environment:
+      - REDIS_HOST=my-redis
+      - REDIS_PORT=6379
+      - SLAVE_ID=1
+      - DISPLAY=${DISPLAY}  # X11 forwarding for debugging
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ./firefox-profile-1:/root/.mozilla
+    devices:
+      - /dev/snd:/dev/snd
+    stdin_open: true
+    tty: true
+    depends_on:
+      - redis
+
+  slave2:
+    build: ./ss_bot
+    container_name: discord-slave-2
+    restart: unless-stopped
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SLAVE_ID=2
+      - DISPLAY=${DISPLAY}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ./firefox-profile-2:/root/.mozilla
+    devices:
+      - /dev/snd:/d

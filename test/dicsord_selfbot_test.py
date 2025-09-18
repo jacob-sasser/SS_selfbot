@@ -3,7 +3,7 @@ import asyncio
 from discord.ext import commands
 from typing import Optional,Union
 #DELETE LATER.
-TEST_TOKEN="MTI4MTA0NDAwMTEwNDg1OTI3MA.GwWmCd.Ya1IfRH0Qe5DH8FZvRvwXZiv2bo1h0Qblcz-Lk" #Documents/TEST_TOKEN.txt
+TEST_TOKEN="MTI4MTA0NDAwMTEwNDg1OTI3MA.Gt_89-.Okg2fErCJYRj36uylN8rAvLo12UeIJ0BEFG9Is" #Documents/TEST_TOKEN.txt
 TEST_SERVER_ID=1412870974524887042
 
 
