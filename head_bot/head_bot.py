@@ -6,6 +6,7 @@ import random
 import redis 
 import json
 import os
+import time
 TOKEN='MTI4MTA0NDAwMTEwNDg1OTI3MA.Gt_89-.Okg2fErCJYRj36uylN8rAvLo12UeIJ0BEFG9Is'
 SERVER_ID='1412870974524887042'
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
@@ -20,9 +21,12 @@ class main_bot(commands.Cog):
         self.human_role=None
         self.waiting_channel=None
         self.guild_id=SERVER_ID
-
+        self.bot_role=None
+        
         self.r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
         self.get_inactive_bots.start()
+        self.get_active_channels.start()
+        self.check_voice_leaves.start()
 
     def get_role_members(role:discord.Role):
         return role.members
@@ -48,25 +52,34 @@ class main_bot(commands.Cog):
 
 
     @tasks.loop(seconds=1)
-    async def get_active_channels(self,ctx,channel_list:list[discord.VoiceChannel],bot_role:discord.Role,human_role:discord.Role):
-        '''
-        searches through the designated list of channels and returns the channels with a (non-bot) user and a bot-user in them
+    async def get_active_channels(self):
+        """
+        Searches through the designated list of channels and updates
+        self.active_channels with those that contain both:
+        - at least one bot (bot_role)
+        - at least one human (human_role)
+        """
 
-        '''
-        
-        for channel in channel_list:
-            has_bot=False
-            has_member=False
-            members=channel.members
-            for member in members:
-                if bot_role in member.roles:
-                    has_bot=True
-                elif human_role in member.roles:
-                    has_member=True
-            if has_member and has_bot:
-                self.active_channels.append(channel)
-            
-            
+        active = []
+
+        for channel in self.channels:
+            members = channel.members
+            has_bot = any(self.bot_role and self.bot_role.id in [r.id for r in m.roles] for m in members)
+            has_human = any(self.human_role and self.human_role.id in [r.id for r in m.roles] for m in members)
+
+            print(f"[DEBUG] Checking {channel.name} members: {[m.name for m in channel.members]}")
+            if has_bot and has_human:
+                active.append(channel)
+
+        self.active_channels = active
+
+        # Debugging
+        if active:
+            print("[MASTER] Active channels:", [c.name for c in active])
+        else:
+            print("[MASTER] No active channels")
+                
+                
 
     @commands.command()
     async def init_category(self,ctx,category:discord.CategoryChannel):
@@ -101,8 +114,9 @@ class main_bot(commands.Cog):
         potentially also gives them nickname IDK yet
         returns: void
         '''
-        
+        self.bot_role=bot_role
         await bot.add_roles(bot_role)
+
         await ctx.send(f"Initialized {bot}")
         self.bots.append({
                 "discord": bot,          # discord.Member object
@@ -125,7 +139,7 @@ class main_bot(commands.Cog):
         - Start: move a bot + send "watch"
         - Stop: return bot + send "stop"
         """
-
+        
         # Must be in a watched channel
         if not after.channel and not before.channel:
             return
@@ -163,22 +177,43 @@ class main_bot(commands.Cog):
                 except discord.HTTPException as e:
                     print(f"Failed to move bot: {e}")
 
-            elif before.self_stream and not after.self_stream:  # just stopped
-                # Find bots in the same channel
-                for voice_member in before.channel.members:
-                    if voice_member in self.bots:
+    @tasks.loop(seconds=5)
+    async def check_voice_leaves(self):
+        """
+        Periodically checks if any tracked voice channels in self.active_channels
+        are now inactive, and moves all bots with self.bot_role back to waiting_channel.
+        """
+
+        before_channels = list(self.active_channels)
+        await asyncio.sleep(1.1)
+        after_channels = list(self.active_channels)
+
+        for before_vc in before_channels:
+            if before_vc not in after_channels:
+                print(f"[MASTER] {before_vc} is no longer active, returning bots...")
+
+                for member in before_vc.members:
+                    if self.bot_role in member.roles:
                         try:
                             if self.waiting_channel:
-                                await voice_member.move_to(self.waiting_channel)
-                            # Tell the slave bot to stop recording
-                            self.r.rpush(f"tasks:{voice_member['slave_id']}", json.dumps({"action": "record_stop"}))
+                                await member.move_to(self.waiting_channel)
+                                print(f"[MASTER] Moved {member.display_name} to waiting channel")
 
-                            self.inactive_bots.append(voice_member)
-                            print(f"Moved {voice_member.display_name} back to waiting channel")
-                        except discord.Forbidden:
-                            print("Missing permissions to move the bot.")
-                        except discord.HTTPException as e:
-                            print(f"Failed to move bot: {e}")
+                            # Always safe since every bot with bot_role is tracked in self.bots
+                            bot_entry = next(b for b in self.bots if b["discord"].id == member.id)
+                            slave_id = bot_entry["slave_id"]
+
+                            # Tell slave to stop recording
+                            self.r.rpush(
+                                f"tasks:{slave_id}",
+                                json.dumps({"action": "record_stop"})
+                            )
+
+                            if bot_entry not in self.inactive_bots:
+                                self.inactive_bots.append(bot_entry)
+
+                        except Exception as e:
+                            print(f"[MASTER] Failed to move {member.display_name}: {e}")
 
 
 
