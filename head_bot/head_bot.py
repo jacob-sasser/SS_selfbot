@@ -7,10 +7,15 @@ import redis
 import json
 import os
 import time
+import signal
+import sys
+import atexit
 TOKEN='MTI4MTA0NDAwMTEwNDg1OTI3MA.Gt_89-.Okg2fErCJYRj36uylN8rAvLo12UeIJ0BEFG9Is'
-SERVER_ID='1412870974524887042'
+SERVER_ID='170438817256308738'
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+
+
 class main_bot(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -31,7 +36,13 @@ class main_bot(commands.Cog):
     def get_role_members(role:discord.Role):
         return role.members
 
-    
+    def cleanup(self):
+        print("[MASTER] Cleaning up Redis queues...")
+        for bot in self.bots:
+            slave_id = bot["slave_id"]
+            self.r.delete(f"tasks:{slave_id}")
+            self.r.delete(f"acks:{slave_id}")
+        print("[MASTER] Cleanup done.")
 
     @tasks.loop(seconds=2)
     async def get_inactive_bots(self):
@@ -143,6 +154,9 @@ class main_bot(commands.Cog):
         # Must be in a watched channel
         if not after.channel and not before.channel:
             return
+        
+        if after.channel == self.waiting_channel or before.channel==self.waiting_channel:
+            return
 
         # Must have the human role
         if self.human_role not in member.roles:
@@ -169,16 +183,27 @@ class main_bot(commands.Cog):
                                                                    "server": after.channel.guild.name,
                                                                    "channel":after.channel.name
                                                                    }))
+                    
 
                     self.inactive_bots.remove(chosen_bot)
+                    try:
+                        ack=self.r.blpop(f"acks{chosen_id}",timeout=10)
+                        if ack:
+                            print(f"[MASTER] Bot {chosen_id} acknowledged: {ack[1]}")
+                        else: print(f"[MASTER] No ACK from bot {chosen_id}")
+
+                    except Exception as e:
+                        print(f"[MASTER] Error waiting for ack: {e}")
+
                     print(f"Moved {chosen_bot.display_name} into {after.channel.name}")
                 except discord.Forbidden:
                     print("Missing permissions to move the bot.")
                 except discord.HTTPException as e:
                     print(f"Failed to move bot: {e}")
 
-    @tasks.loop(seconds=5)
+    @tasks.loop(seconds=2)
     async def check_voice_leaves(self):
+
         """
         Periodically checks if any tracked voice channels in self.active_channels
         are now inactive, and moves all bots with self.bot_role back to waiting_channel.
@@ -188,6 +213,17 @@ class main_bot(commands.Cog):
         await asyncio.sleep(1.1)
         after_channels = list(self.active_channels)
 
+        for vc in self.channels:
+            if len(vc.members)==1 and self.bot_role in vc.members[0].roles:
+                member=vc.members[0]
+                bot_entry = next(b for b in self.bots if b["discord"].id == member.id)
+                slave_id = bot_entry["slave_id"]
+                self.r.rpush(
+                                f"tasks:{slave_id}",
+                                json.dumps({"action": "record_stop"})
+                            )
+                await member.move_to(self.waiting_channel)
+                
         for before_vc in before_channels:
             if before_vc not in after_channels:
                 print(f"[MASTER] {before_vc} is no longer active, returning bots...")
@@ -219,13 +255,14 @@ class main_bot(commands.Cog):
 
 
 
+
     @commands.command()
     async def watch(self,ctx,channel:discord.VoiceChannel,force: Optional[bool]): 
         if force and len(self.inactive_bots)==0:
             chosen_bot=random.choice(self.bots)
             await ctx.send(f"force moving bot to {channel.name}")
             await chosen_bot.edit(voice_channel=channel)
-        elif len(self.inactive_bots==0):
+        elif len(self.inactive_bots)==0:
             await ctx.send("no bots available")
             return
         else:
@@ -238,16 +275,24 @@ bot = commands.Bot(command_prefix=commands.when_mentioned_or("!"), description='
 async def on_ready():
     print(f'logged in as {bot.user}')
 
-async def setup(bot):
-    await bot.add_cog(main_bot(bot))
-    
-    
+async def setup_bot():
+    cog = main_bot(bot)
+    await bot.add_cog(cog)
+
+    # Register cleanup before run loop
+    atexit.register(cog.cleanup)
+    return cog
 
 async def main():
-    await setup(bot)
+    await setup_bot()
     await bot.start(TOKEN)
 
-asyncio.run(main())
+if __name__ == "__main__":
+    # Ensure signals exit cleanly
+    signal.signal(signal.SIGINT, lambda sig, frame: sys.exit(0))
+    signal.signal(signal.SIGTERM, lambda sig, frame: sys.exit(0))
+
+    asyncio.run(main())
 
 
         

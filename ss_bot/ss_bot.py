@@ -5,6 +5,10 @@ import os
 import datetime
 import subprocess
 
+import atexit
+import sys
+import signal
+
 import time
 from selenium import webdriver
 from selenium.webdriver.firefox.service import Service as FirefoxService
@@ -12,15 +16,21 @@ from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
 
 
+profile_path = "/root/.mozilla/firefox/bn6jv641.test_bot"
+
+ff_profile = FirefoxProfile(profile_path)
 firefox_options = Options()
 firefox_options.add_argument("--start-maximized")
 
 #firefox_options.add_argument("--headless")  # remove if you want to see browser
-
+firefox_options.profile=ff_profile
 driver = webdriver.Firefox(options=firefox_options)
-wait = WebDriverWait(driver, 30)
+
+wait = WebDriverWait(driver, 10)
 driver.get('https://discord.com/app')
 # Connect to Redis (using Docker service name "redis")
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
@@ -29,6 +39,7 @@ r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
 BOT_ID = os.getenv("BOT_ID","1")  # change to bot2, bot3, etc. per container
 recording_process=None
+
 
 def start_recording():
     global recording_process
@@ -70,6 +81,17 @@ def stop_recording():
 def upload_recording(recording):
     pass
 
+def click_server(server_name):
+    server_elem = WebDriverWait(driver, 15).until(
+        EC.presence_of_element_located(
+            (By.XPATH, f"//span[@class='hiddenVisually__27f77' and text()='{server_name}']")
+        )
+    )
+    driver.execute_script("arguments[0].scrollIntoView(true);", server_elem)
+
+    driver.execute_script("arguments[0].click();", server_elem)
+
+
 def click_channel(server,channel):
     full_name=f"{channel} / {server}"
     channel_elem = wait.until(
@@ -99,19 +121,27 @@ def handle_command(cmd: str):
         action = data.get("action")
     except Exception:
         action = cmd.strip().lower()
+        data = {}
 
     if action == "click_channel":
-        server=data.get("server")
-        channel=data.get("channel")
-        click_channel(server,channel)
+        server = data.get("server")
+        channel = data.get("channel")
+        click_channel(server, channel)
         time.sleep(5)
         start_recording()
-    elif action=="record_stop":
+    elif action == "record_stop":
         stop_recording()
-    elif action=="record_start":
+    elif action == "record_start":
         start_recording()
     else:
         print(f"[{BOT_ID}] Unknown action: {action}")
+
+    # ✅ Send ACK back to master
+    r.rpush(f"acks:{BOT_ID}", json.dumps({
+        "status": "ok",
+        "action": action,
+        "timestamp": datetime.datetime.now().isoformat()
+    }))
 
 def main():
     print(f"[{BOT_ID}] Listening for commands...")
