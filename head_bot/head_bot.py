@@ -12,7 +12,7 @@ import sys
 import atexit
 TOKEN='MTI4MTA0NDAwMTEwNDg1OTI3MA.Gt_89-.Okg2fErCJYRj36uylN8rAvLo12UeIJ0BEFG9Is'
 SERVER_ID='170438817256308738'
-REDIS_HOST = os.getenv("REDIS_HOST", "redis")
+REDIS_HOST = "localhost"
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 
 
@@ -22,7 +22,7 @@ class main_bot(commands.Cog):
         self.channels=[]
         self.bots=[]
         self.inactive_bots=[]
-        self.active_channels=[]
+        self.active_channels=set()
         self.human_role=None
         self.waiting_channel=None
         self.guild_id=SERVER_ID
@@ -39,7 +39,7 @@ class main_bot(commands.Cog):
     def cleanup(self):
         print("[MASTER] Cleaning up Redis queues...")
         for bot in self.bots:
-            slave_id = bot["slave_id"]
+            slave_id = bot["user_id"]
             self.r.delete(f"tasks:{slave_id}")
             self.r.delete(f"acks:{slave_id}")
         print("[MASTER] Cleanup done.")
@@ -119,23 +119,46 @@ class main_bot(commands.Cog):
         await ctx.send(f"waiting channel is set to {vc.name}")
 
     @commands.command()
-    async def init_bot(self,ctx,bot:discord.Member,bot_role:discord.Role):
-        '''
-        initialized a new bot, giving them roles and server muting & deafning them
-        potentially also gives them nickname IDK yet
-        returns: void
-        '''
-        self.bot_role=bot_role
+    async def init_bot(self, ctx, bot: discord.Member, bot_role: discord.Role):
+        """
+        Initializes a new bot by using its Discord user ID as the unique identifier.
+        """
+        self.bot_role = bot_role
         await bot.add_roles(bot_role)
 
-        await ctx.send(f"Initialized {bot}")
-        self.bots.append({
-                "discord": bot,          # discord.Member object
-                "slave_id": f"{len(self.bots)+1}"  # or pulled from env/config
-            })
+        user_id = str(bot.id)  
 
-            
         
+        if not self.r.exists(f"bot:{user_id}"):
+            self.r.set(f"bot:{user_id}:discord_id", bot.id)
+            await ctx.send(f"Initialized {bot} with ID {user_id}")
+        else:
+            await ctx.send(f"Reattached existing bot {bot} with ID {user_id}")
+
+        # Add to local cache
+        entry = {"discord": bot, "user_id": user_id}
+        if entry not in self.bots:
+            self.bots.append(entry)
+
+        print(f"[MASTER] Registered {bot.name} with ID {user_id}")
+
+
+    def load_bots(self, role: discord.Role):
+        """
+        Loads all members with the bot_role and registers them using their Discord user IDs.
+        """
+        for bot in role.members:
+            user_id = str(bot.id)
+            # Only add if not already in local cache
+            if not any(b["user_id"] == user_id for b in self.bots):
+                self.bots.append({"discord": bot, "user_id": user_id})
+                print(f"[MASTER] Loaded bot {bot.name} with ID {user_id}")
+
+
+
+        
+    
+    
     @commands.command()
     async def set_human_role(self,ctx,role:discord.Role):
         self.human_role=role
@@ -171,7 +194,7 @@ class main_bot(commands.Cog):
 
                 chosen = random.choice(self.bots)
                 chosen_bot = chosen["discord"]
-                chosen_id = chosen["slave_id"]
+                chosen_id = chosen["user_id"]
 
 
 
@@ -217,7 +240,7 @@ class main_bot(commands.Cog):
             if len(vc.members)==1 and self.bot_role in vc.members[0].roles:
                 member=vc.members[0]
                 bot_entry = next(b for b in self.bots if b["discord"].id == member.id)
-                slave_id = bot_entry["slave_id"]
+                slave_id = bot_entry["user_id"]
                 self.r.rpush(
                                 f"tasks:{slave_id}",
                                 json.dumps({"action": "record_stop"})
@@ -278,7 +301,7 @@ async def on_ready():
 async def setup_bot():
     cog = main_bot(bot)
     await bot.add_cog(cog)
-
+    
     # Register cleanup before run loop
     atexit.register(cog.cleanup)
     return cog

@@ -5,6 +5,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     firefox-esr \
+    x11vnc \
     wget \
     curl \
     tar \
@@ -30,6 +31,8 @@ RUN wget https://github.com/mozilla/geckodriver/releases/download/$GECKO_VERSION
     rm geckodriver-$GECKO_VERSION-linux64.tar.gz
 
 # Upgrade pip
+ENV DISPLAY=host.docker.internal:0.0
+
 RUN python3 -m pip install --upgrade pip --break-system-packages
 
 # Install Python packages

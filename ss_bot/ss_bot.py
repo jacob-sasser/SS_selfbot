@@ -1,73 +1,77 @@
 import redis
-from time import sleep
 import json
 import os
 import datetime
 import subprocess
-
-import atexit
-import sys
-import signal
-
 import time
+import get_bot_id
 from selenium import webdriver
-from selenium.webdriver.firefox.service import Service as FirefoxService
 from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.firefox.options import Options
-from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
 
-
-profile_path = "/root/.mozilla/firefox/bn6jv641.test_bot"
-
+# -------------------------------
+# Firefox setup
+# -------------------------------
+profile_path = r"C:\Users\Jake\Documents\GitHub\SS_selfbot\firefox_profiles\psxoje5e.default-release-2"
 ff_profile = FirefoxProfile(profile_path)
+
 firefox_options = Options()
 firefox_options.add_argument("--start-maximized")
+# firefox_options.add_argument("--headless")  # remove if you want to see browser
+firefox_options.profile = ff_profile
 
-#firefox_options.add_argument("--headless")  # remove if you want to see browser
-firefox_options.profile=ff_profile
 driver = webdriver.Firefox(options=firefox_options)
+wait = WebDriverWait(driver, 5)
+driver.get("https://discord.com/app")
 
-wait = WebDriverWait(driver, 10)
-driver.get('https://discord.com/app')
-# Connect to Redis (using Docker service name "redis")
-REDIS_HOST = os.getenv("REDIS_HOST", "redis")
-REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+# -------------------------------
+# Redis setup (optional)
+# -------------------------------
+REDIS_HOST = "localhost"
+REDIS_PORT = 6379
 r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
-BOT_ID = os.getenv("BOT_ID","1")  # change to bot2, bot3, etc. per container
-recording_process=None
-
+BOT_ID = get_bot_id.get_bot_id_from_firefox_profile(profile_path)
+recording_process = None
+print(BOT_ID)
+# -------------------------------
+# Recording functions
+# -------------------------------
+def get_discord_user_id(driver):
+    # This fetches your own user ID via localStorage trick
+    script = "return window.localStorage.getItem('user_id_cache');"
+    return driver.execute_script(script)
 
 def start_recording():
     global recording_process
     if recording_process is not None:
-        print(f"{BOT_ID} already recording" )
+        print(f"{BOT_ID} already recording")
         return
+
     now_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    folder_path = f"recordings/{BOT_ID}"
+    folder_path = os.path.join("recordings", BOT_ID)
     os.makedirs(folder_path, exist_ok=True)
-    filename = f"{folder_path}/{now_str}_stream.mp4"
+    filename = os.path.join(folder_path, f"{now_str}_stream.mp4")
+
     cmd = [
         "ffmpeg",
         "-y",                # overwrite output
-        "-f", "x11grab",     # capture X11 screen
-        "-s", "1080x1920",   # resolution (change if needed)
-        "-i", ":0.0",        # display to grab (:0.0 = default)
-        "-r", "15",          # fps
-        "-codec:v", "libx264",
+        "-f", "gdigrab",     # capture Windows desktop
+        "-framerate", "30",
+        "-i", "desktop",
+        "-c:v", "libx264",
         "-preset", "ultrafast",
         "-pix_fmt", "yuv420p",
         filename
     ]
+
     print(f"[{BOT_ID}] Starting recording: {filename}")
     recording_process = subprocess.Popen(cmd)
 
-
 def stop_recording():
-    """Stop ffmpeg screen recording."""
     global recording_process
     if recording_process is None:
         print(f"[{BOT_ID}] No recording in progress")
@@ -78,42 +82,40 @@ def stop_recording():
     recording_process.wait()
     recording_process = None
 
-def upload_recording(recording):
-    pass
-
+# -------------------------------
+# Discord actions
+# -------------------------------
 def click_server(server_name):
-    server_elem = WebDriverWait(driver, 15).until(
+    server_elem = wait.until(
         EC.presence_of_element_located(
             (By.XPATH, f"//span[@class='hiddenVisually__27f77' and text()='{server_name}']")
         )
     )
     driver.execute_script("arguments[0].scrollIntoView(true);", server_elem)
-
     driver.execute_script("arguments[0].click();", server_elem)
 
-
-def click_channel(server,channel):
-    full_name=f"{channel} / {server}"
+def click_channel(server, channel):
+    full_name = f"{channel} / {server}"
     channel_elem = wait.until(
         EC.element_to_be_clickable((By.XPATH, f"//div[contains(text(), '{full_name}')]"))
     )
     channel_elem.click()
-    
     print(f"[{BOT_ID}] Clicked channel element")
     time.sleep(2)
-    
+
     stream_elem = wait.until(
-            EC.element_to_be_clickable((By.XPATH, "//div[text()='Watch Stream']"))
-        )
+        EC.element_to_be_clickable((By.XPATH, "//div[text()='Watch Stream']"))
+    )
     stream_elem.click()
-    print(f"{BOT_ID} Clicked Watched Stream")
+    print(f"[{BOT_ID}] Clicked Watch Stream")
+    time.sleep(2)
 
+    start_recording()
 
+# -------------------------------
+# Command handler
+# -------------------------------
 def handle_command(cmd: str):
-    """
-    Handle commands sent from the head bot.
-    Commands should be plain strings or JSON with fields.
-    """
     print(f"[{BOT_ID}] Received command: {cmd}")
 
     try:
@@ -124,29 +126,31 @@ def handle_command(cmd: str):
         data = {}
 
     if action == "click_channel":
-        server = data.get("server")
-        channel = data.get("channel")
-        click_channel(server, channel)
-        time.sleep(5)
+        click_channel(data.get("server"), data.get("channel"))
+        print(get_discord_user_id(driver))
+    elif action == "record_start":
         start_recording()
     elif action == "record_stop":
         stop_recording()
-    elif action == "record_start":
-        start_recording()
     else:
         print(f"[{BOT_ID}] Unknown action: {action}")
 
-    # ✅ Send ACK back to master
+    # ACK back to Redis
     r.rpush(f"acks:{BOT_ID}", json.dumps({
         "status": "ok",
         "action": action,
         "timestamp": datetime.datetime.now().isoformat()
     }))
 
+# -------------------------------
+# Main loop
+# -------------------------------
+import time
 def main():
     print(f"[{BOT_ID}] Listening for commands...")
+    print(BOT_ID)
     while True:
-        _, cmd = r.brpop(f"tasks:{BOT_ID}")  # queue name e.g. tasks:bot1
+        _, cmd = r.brpop(f"tasks:{BOT_ID}")  # blocks until command arrives
         handle_command(cmd)
 
 if __name__ == "__main__":
