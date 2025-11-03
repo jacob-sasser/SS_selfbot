@@ -17,12 +17,18 @@ from ctypes import wintypes
 import win32process
 import win32gui
 import psutil
-
-
+import argparse
+parser = argparse.ArgumentParser(description="Screen share recording bot")
+parser.add_argument(
+    "--profile-path",
+    required=True,
+    help="Full path to the Firefox profile for this bot (e.g. C:\\Users\\You\\AppData\\Roaming\\Mozilla\\Firefox\\Profiles\\abc123.default-release)"
+)
+args = parser.parse_args()
 # -------------------------------
 # Firefox setup
 # -------------------------------
-profile_path = r"firefox_profiles\psxoje5e.default-release-2"
+profile_path = args.profile_path
 ff_profile = FirefoxProfile(profile_path)
 BOT_ID = get_bot_id.get_bot_id_from_firefox_profile(profile_path)
 

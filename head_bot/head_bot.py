@@ -10,6 +10,7 @@ import time
 import signal
 import sys
 import atexit
+
 TOKEN='MTI4MTA0NDAwMTEwNDg1OTI3MA.Gt_89-.Okg2fErCJYRj36uylN8rAvLo12UeIJ0BEFG9Is'
 SERVER_ID='170438817256308738'
 REDIS_HOST = "localhost"
