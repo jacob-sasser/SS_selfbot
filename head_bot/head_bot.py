@@ -292,7 +292,11 @@ class main_bot(commands.Cog):
             chosen_bot=random.choice(self.inactive_bots)
         
             await chosen_bot.edit(voice_channel=channel)
-bot = commands.Bot(command_prefix=commands.when_mentioned_or("!"), description='test')
+
+owner_ids=[117475726260830213]
+
+
+bot = commands.Bot(command_prefix=commands.when_mentioned_or("!"), description='test',owner_ids=owner_ids)
 
 @bot.event
 async def on_ready():

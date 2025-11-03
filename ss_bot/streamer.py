@@ -15,6 +15,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 
+import ss_bot
+
 BOT_ID=99
 REDIS_PORT=6379
 REDIS_HOST = "localhost"
