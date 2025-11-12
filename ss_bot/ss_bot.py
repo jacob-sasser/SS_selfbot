@@ -115,7 +115,7 @@ def get_discord_user_id(driver):
     # This fetches your own user ID via localStorage trick
     script = "return window.localStorage.getItem('user_id_cache');"
     return driver.execute_script(script)
-def start_recording(driver, BOT_ID):
+def start_recording(driver, BOT_ID,channel_member):
     global recording_process
     if recording_process is not None:
         print(f"[{BOT_ID}] Already recording")
@@ -132,8 +132,8 @@ def start_recording(driver, BOT_ID):
     now_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     folder_path = os.path.join("recordings", BOT_ID)
     os.makedirs(folder_path, exist_ok=True)
-    mkv_filename = os.path.join(folder_path, f"{now_str}_stream.mkv")
-    mp4_filename = os.path.join(folder_path, f"{now_str}_stream.mp4")
+    mkv_filename = os.path.join(folder_path, f"{channel_member}_{now_str}_stream.mkv")
+    mp4_filename = os.path.join(folder_path, f"{channel_member}_{now_str}_stream.mp4")
 
     # FFmpeg command
     cmd = [
@@ -198,7 +198,7 @@ def click_server(server_name):
     driver.execute_script("arguments[0].scrollIntoView(true);", server_elem)
     driver.execute_script("arguments[0].click();", server_elem)
 
-def click_channel(server, channel):
+def click_channel(server, channel,member):
     full_name = f"{channel} / {server}"
     channel_elem = wait.until(
         EC.element_to_be_clickable((By.XPATH, f"//div[contains(text(), '{full_name}')]"))
@@ -214,7 +214,7 @@ def click_channel(server, channel):
     print(f"[{BOT_ID}] Clicked Watch Stream")
     time.sleep(2)
 
-    start_recording(BOT_ID=BOT_ID,driver=driver)
+    start_recording(BOT_ID=BOT_ID,driver=driver,channel_member=member)
 
 # -------------------------------
 # Command handler
@@ -230,7 +230,7 @@ def handle_command(cmd: str):
         data = {}
 
     if action == "click_channel":
-        click_channel(data.get("server"), data.get("channel"))
+        click_channel(data.get("server"), data.get("channel"),data.get("member"))
         
     elif action == "record_start":
         start_recording(BOT_ID=BOT_ID,driver=driver)

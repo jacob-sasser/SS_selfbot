@@ -205,7 +205,8 @@ class main_bot(commands.Cog):
                     # Tell the slave bot to start recording
                     self.r.rpush(f"tasks:{chosen_id}", json.dumps({"action": "click_channel",
                                                                    "server": after.channel.guild.name,
-                                                                   "channel":after.channel.name
+                                                                   "channel":after.channel.name,
+                                                                   "member" : after.channel.member
                                                                    }))
                     
 
